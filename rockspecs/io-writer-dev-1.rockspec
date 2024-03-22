@@ -1,7 +1,7 @@
 package = "io-writer"
 version = "dev-1"
 source = {
-    url = "git+https://github.com/mah0x211/io-writer.git",
+    url = "git+https://github.com/mah0x211/lua-io-writer.git",
 }
 description = {
     summary = "A writer that writes data to a file or file descriptor.",
