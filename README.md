@@ -57,7 +57,7 @@ print(dump({
 ```
 
 
-## n, err, timeout = writer:write(sec, ...)
+## n, err, timeout = writer:write(sec, data [, ...])
 
 write data to the file or file descriptor.
 
@@ -67,8 +67,9 @@ if the file descriptor's peer is closed, this method returns nothing.
 
 **Parameters**
 
-- `sec:number`: timeout seconds.
-- `...:any`: data to write. if a non-string value is specified, it is converted to a string by `tostring` function.
+- `sec?:number`: timeout seconds. if `nil` or `<0`, wait forever.
+- `data:any`: data to write. if a non-string value is specified, it is converted to a string by `tostring` function.
+- `...:any`: additional data to write. these are concatenated with `data`.
 
 **Returns**
 
