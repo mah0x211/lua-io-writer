@@ -18,13 +18,14 @@ luarocks install io-writer
 the following functions return the `error` object created by https://github.com/mah0x211/lua-errno module.
 
 
-## w, err = io.writer.new(f)
+## w, err = io.writer.new( f [, sec] )
 
 create a new writer instance that writes data to a file or file descriptor.
 
 **Parameters**
 
 - `f:file*|string|integer`: file, filename or file descriptor.
+- `sec:number`: timeout seconds. if `nil` or `<0`, wait forever.
 
 **Returns**
 
@@ -40,7 +41,7 @@ local writer = require('io.writer')
 
 local f = assert(io.tmpfile())
 local w = writer.new(f)
-local n, err, again, remain = w:write(nil, 'hello', ' writer ', 'world!')
+local n, err, again, remain = w:write('hello', ' writer ', 'world!')
 
 f:seek('set')
 print(dump({
@@ -57,7 +58,7 @@ print(dump({
 ```
 
 
-## n, err, timeout = writer:write(sec, data [, ...])
+## n, err, timeout = writer:write( data [, ...] )
 
 write data to the file or file descriptor.
 
@@ -67,7 +68,6 @@ if the file descriptor's peer is closed, this method returns nothing.
 
 **Parameters**
 
-- `sec?:number`: timeout seconds. if `nil` or `<0`, wait forever.
 - `data:any`: data to write. if a non-string value is specified, it is converted to a string by `tostring` function.
 - `...:any`: additional data to write. these are concatenated with `data`.
 
