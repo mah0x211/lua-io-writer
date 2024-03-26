@@ -27,6 +27,11 @@ function testcase.new()
     assert.is_nil(err)
     assert.match(w, '^io.writer: ', false)
 
+    -- test that craete a new writer from file with timeout sec
+    w, err = writer.new(f, 0.1)
+    assert.is_nil(err)
+    assert.match(w, '^io.writer: ', false)
+
     -- test that create a new writer from filename
     w, err = writer.new(TEST_TXT)
     assert.is_nil(err)
@@ -51,12 +56,34 @@ function testcase.new()
     w, err = writer.new(true)
     assert.is_nil(w)
     assert.match(err, 'FILE*, pathname or file descriptor expected, got boolean')
+
+    -- test that throws an error if sec is invalid
+    err = assert.throws(writer.new, f, true)
+    assert.match(err, 'sec must be number or nil')
 end
 
 function testcase.write()
+    local f = assert(io.tmpfile())
+    local w = assert(writer.new(f))
+
+    -- test that write data
+    local n, err, again, remain = w:write('foo', 'bar', true, 'baz')
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
+    assert.equal(n, 13)
+    f:seek('set')
+    assert.equal(f:read('*a'), 'foobartruebaz')
+
+    -- test that throws an error if no data arguments are specified
+    err = assert.throws(w.write, w)
+    assert.match(err, 'data argument is required')
+end
+
+function testcase.write_timeout()
     local pr, pw, perr = pipe(true)
     assert(perr == nil, perr)
-    local w = assert(writer.new(pw:fd()))
+    local w = assert(writer.new(pw:fd(), 0.1))
     -- calculate the capacity of pipe
     local cap = 0
     repeat
@@ -65,31 +92,15 @@ function testcase.write()
     until again == true
     pr:read(cap)
 
-    -- test that write data
-    local n, err, again, remain = w:write(nil, 'foo', 'bar', true, 'baz')
-    assert.is_nil(err)
-    assert.is_nil(again)
-    assert.is_nil(remain)
-    assert.equal(n, 13)
-    assert.equal(pr:read(), 'foobartruebaz')
-
-    -- test that return again=true if deadline is expired
+    -- test that return again=true if timeout
     assert(pw:write(string.rep('x', cap - 4)))
     local t = gettime()
-    n, err, again = w:write(0.1, 'hello')
+    local n, err, again = w:write('hello')
     t = gettime() - t
     assert.is_nil(err)
     assert.is_true(again)
     assert.equal(n, 0)
     assert.greater(t, 0.09)
     assert.less(t, 0.11)
-
-    -- test that throws an error if sec is invalid
-    err = assert.throws(w.write, w, true)
-    assert.match(err, 'sec must be number or nil')
-
-    -- test that throws an error if no data arguments are specified
-    err = assert.throws(w.write, w)
-    assert.match(err, 'data argument is required')
 end
 

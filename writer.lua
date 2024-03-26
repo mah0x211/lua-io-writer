@@ -32,31 +32,31 @@ local EINVAL = require('errno').EINVAL
 --- @class io.writer
 --- @field private fd integer
 --- @field private file? file*
+--- @field private waitsec number?
 local Writer = {}
 
 --- init
 --- @param fd integer
 --- @param f file*
 --- @return io.writer
-function Writer:init(fd, f)
+function Writer:init(fd, f, sec)
     self.fd = fd
     self.file = f
+    self.waitsec = sec
     return self
 end
 
 --- write
---- @param sec number?
 --- @param ... string
 --- @return integer? n
 --- @return any err
 --- @return boolean? timeout
-function Writer:write(sec, ...)
+function Writer:write(...)
     -- check arguments
     local narg = select('#', ...)
     local args = {
         ...,
     }
-    assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
     assert(narg > 0, 'data argument is required')
     -- convert arguments to string
     for i = 1, narg do
@@ -67,6 +67,7 @@ function Writer:write(sec, ...)
 
     local fd = self.fd
     local str = concat(args)
+    local sec = self.waitsec
     local deadline = sec and new_deadline(sec)
     local n, err, again, remain = writev(fd, str)
     local total = 0
@@ -101,9 +102,10 @@ Writer = require('metamodule').new(Writer)
 
 --- new
 --- @param file string|integer|file*
+--- @param sec number?
 --- @return io.writer? rdr
 --- @return any err
-local function new(file)
+local function new(file, sec)
     local t = type(file)
     local f, err
     if isfile(file) then
@@ -123,7 +125,9 @@ local function new(file)
     if not f then
         return nil, err
     end
-    return Writer(fileno(f), f)
+
+    assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
+    return Writer(fileno(f), f, sec)
 end
 
 return {
