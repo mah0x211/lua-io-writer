@@ -6,7 +6,7 @@ source = {
 }
 description = {
     summary = "A writer that writes data to a file or file descriptor.",
-    homepage = "https://github.com/mah0x211/io-writer",
+    homepage = "https://github.com/mah0x211/lua-io-writer",
     license = "MIT/X11",
     maintainer = "Masatoshi Fukunaga",
 }
