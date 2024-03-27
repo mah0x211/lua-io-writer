@@ -136,3 +136,23 @@ function testcase.write_timeout()
     assert.less(t, 0.11)
 end
 
+function testcase.close()
+    local f = assert(io.tmpfile())
+    local w = assert(writer.new(f))
+
+    -- test that close the file associated with writer
+    local ok, err = w:close()
+    assert.is_nil(err)
+    assert.is_true(ok)
+
+    -- test that close can be called multiple times
+    ok, err = w:close()
+    assert.is_nil(err)
+    assert.is_true(ok)
+
+    -- test that write method return error if writer is closed
+    ok, err = w:write('hello')
+    assert.match(err, 'EBADF')
+    assert.is_nil(ok)
+
+end
