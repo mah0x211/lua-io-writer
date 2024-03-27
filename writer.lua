@@ -28,6 +28,7 @@ local wait_writable = require('gpoll').wait_writable
 local new_deadline = require('time.clock.deadline').new
 -- constants
 local EINVAL = require('errno').EINVAL
+local EBADF = require('errno').EBADF
 
 --- @class io.writer
 --- @field private fd integer
@@ -52,6 +53,19 @@ function Writer:getfd()
     return self.fd
 end
 
+--- close
+--- @return boolean ok
+--- @return any err
+function Writer:close()
+    local f = self.file
+    if f then
+        self.file = nil
+        self.fd = -self.fd
+        return f:close()
+    end
+    return true
+end
+
 --- write
 --- @param ... string
 --- @return integer? n
@@ -72,6 +86,10 @@ function Writer:write(...)
     end
 
     local fd = self.fd
+    if fd < 0 then
+        return nil, EBADF:new('writer is closed')
+    end
+
     local str = concat(args)
     local sec = self.waitsec
     local deadline = sec and new_deadline(sec)

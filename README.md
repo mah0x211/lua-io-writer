@@ -71,6 +71,16 @@ get the file descriptor of the writer.
 - `fd:integer`: file descriptor.
 
 
+## ok, err = writer:close()
+
+close the writer.
+
+**Returns**
+
+- `ok:boolean`: `true` if succeeded.
+- `err:any`: error message.
+
+
 ## n, err, timeout = writer:write( data [, ...] )
 
 write data to the file or file descriptor.
