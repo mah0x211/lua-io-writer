@@ -46,6 +46,12 @@ function Writer:init(fd, f, sec)
     return self
 end
 
+--- getfd
+--- @return integer fd
+function Writer:getfd()
+    return self.fd
+end
+
 --- write
 --- @param ... string
 --- @return integer? n
