@@ -63,8 +63,9 @@ function testcase.new()
 end
 
 function testcase.write()
-    local f = assert(io.tmpfile())
-    local w = assert(writer.new(f))
+    local pr, pw, perr = pipe(true)
+    assert(perr == nil, perr)
+    local w = assert(writer.new(pw:fd()))
 
     -- test that write data
     local n, err, again, remain = w:write('foo', 'bar', true, 'baz')
@@ -72,8 +73,24 @@ function testcase.write()
     assert.is_nil(again)
     assert.is_nil(remain)
     assert.equal(n, 13)
-    f:seek('set')
-    assert.equal(f:read('*a'), 'foobartruebaz')
+    assert.equal(pr:read(n), 'foobartruebaz')
+
+    -- test that can write data even if file descriptor is closed
+    pw:close()
+    n, err, again, remain = w:write('hello')
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
+    assert.equal(n, 5)
+    assert.equal(pr:read(n), 'hello')
+
+    -- test that return nil if peer is closed
+    pr:close()
+    n, err, again, remain = w:write('world')
+    assert.is_nil(n)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
 
     -- test that throws an error if no data arguments are specified
     err = assert.throws(w.write, w)
