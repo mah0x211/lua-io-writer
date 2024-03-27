@@ -62,6 +62,15 @@ print(dump({
 ```
 
 
+## fd = writer:getfd()
+
+get the file descriptor of the writer.
+
+**Returns**
+
+- `fd:integer`: file descriptor.
+
+
 ## n, err, timeout = writer:write( data [, ...] )
 
 write data to the file or file descriptor.
