@@ -71,6 +71,15 @@ get the file descriptor of the writer.
 - `fd:integer`: file descriptor.
 
 
+## writer:set_timeout( [sec] )
+
+set the timeout seconds.
+
+**Parameters**
+
+- `sec:number`: timeout seconds. if `nil` or `<0`, wait forever.
+
+
 ## ok, err = writer:close()
 
 close the writer.

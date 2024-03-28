@@ -115,7 +115,7 @@ end
 function testcase.write_timeout()
     local pr, pw, perr = pipe(true)
     assert(perr == nil, perr)
-    local w = assert(writer.new(pw:fd(), 0.1))
+    local w = assert(writer.new(pw:fd(), 0.3))
     -- calculate the capacity of pipe
     local cap = 0
     repeat
@@ -123,17 +123,32 @@ function testcase.write_timeout()
         cap = cap + n
     until again == true
     pr:read(cap)
+    assert(pw:write(string.rep('x', cap - 4)))
 
     -- test that return again=true if timeout
-    assert(pw:write(string.rep('x', cap - 4)))
     local t = gettime()
     local n, err, again = w:write('hello')
     t = gettime() - t
     assert.is_nil(err)
     assert.is_true(again)
     assert.equal(n, 0)
+    assert.greater(t, 0.29)
+    assert.less(t, 0.31)
+
+    -- test that change timeout sec
+    w:set_timeout(0.1)
+    t = gettime()
+    n, err, again = w:write('world')
+    t = gettime() - t
+    assert.is_nil(err)
+    assert.is_true(again)
+    assert.equal(n, 0)
     assert.greater(t, 0.09)
     assert.less(t, 0.11)
+
+    -- test that throws an error if sec is invalid
+    err = assert.throws(w.set_timeout, w, true)
+    assert.match(err, 'sec must be number or nil')
 end
 
 function testcase.close()

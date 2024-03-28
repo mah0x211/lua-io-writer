@@ -20,6 +20,9 @@
 -- THE SOFTWARE.
 --
 local concat = table.concat
+local select = select
+local type = type
+local tostring = tostring
 local isfile = require('io.isfile')
 local fopen = require('io.fopen')
 local fileno = require('io.fileno')
@@ -51,6 +54,13 @@ end
 --- @return integer fd
 function Writer:getfd()
     return self.fd
+end
+
+--- set_timeout
+--- @param sec? number
+function Writer:set_timeout(sec)
+    assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
+    self.waitsec = sec
 end
 
 --- close
