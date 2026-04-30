@@ -32,6 +32,13 @@ local new_deadline = require('time.clock.deadline').new
 local EINVAL = require('errno').EINVAL
 local EBADF = require('errno').EBADF
 
+local function normalize_timeout(sec)
+    if sec ~= nil and sec < 0 then
+        return nil
+    end
+    return sec
+end
+
 --- @class io.writer
 --- @field private fd integer
 --- @field private file? file*
@@ -45,7 +52,7 @@ local Writer = {}
 function Writer:init(fd, f, sec)
     self.fd = fd
     self.file = f
-    self.waitsec = sec
+    self.waitsec = normalize_timeout(sec)
     return self
 end
 
@@ -59,7 +66,7 @@ end
 --- @param sec? number
 function Writer:set_timeout(sec)
     assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
-    self.waitsec = sec
+    self.waitsec = normalize_timeout(sec)
 end
 
 --- close
