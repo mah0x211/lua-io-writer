@@ -25,6 +25,7 @@ create a new writer instance that writes data to a file or file descriptor.
 **NOTE**
 
 this function uses the `dup` system call internally to duplicate a file descriptor. thus, data can be write to a file even if the passed file is closed.
+when `f` is a file handle or file descriptor, the duplicated writer starts from the current offset of that open file description.
 
 **Parameters**
 

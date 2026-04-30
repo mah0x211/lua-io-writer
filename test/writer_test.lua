@@ -2,39 +2,105 @@ require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local fileno = require('io.fileno')
+local fork = require('testcase.fork')
 local writer = require('io.writer')
 local pipe = require('os.pipe')
 local gettime = require('time.clock').gettime
+local sleep = require('time.sleep')
 
 local TEST_TXT = 'test.txt'
+local DRAIN_DELAY = 0.05
 
-local function with_swapped_upvalues(fn, replacements, cb)
-    local originals = {}
+-- Fill the non-blocking pipe until the next write has to retry.
+--- @param pw os.pipe.writer
+--- @return integer
+local function fill_pipe(pw)
+    local cap = 0
 
-    for i = 1, math.huge do
-        local name, value = debug.getupvalue(fn, i)
-        if not name then
-            break
-        elseif replacements[name] ~= nil then
-            originals[name] = value
-            debug.setupvalue(fn, i, replacements[name])
+    repeat
+        local n, _, again = assert(pw:write(string.rep('x', 1024)))
+        cap = cap + n
+    until again == true
+
+    return cap
+end
+
+--- Drain bytes from the reader side until the requested size is consumed.
+--- @param pr os.pipe.reader
+--- @param nbyte integer
+local function drain_pipe(pr, nbyte)
+    local total = 0
+
+    while total < nbyte do
+        local s, err, again = pr:read(nbyte - total)
+        if s then
+            total = total + #s
+        elseif again then
+            sleep(0.001)
+        elseif err then
+            error(err, 0)
+        else
+            error('unexpected EOF', 0)
         end
     end
+end
 
-    local ok, err = pcall(cb)
-
-    for i = 1, math.huge do
-        local name = debug.getupvalue(fn, i)
-        if not name then
-            break
-        elseif originals[name] ~= nil then
-            debug.setupvalue(fn, i, originals[name])
+-- Drain bytes from the reader side in a child process after the writer blocks.
+--- @param pr os.pipe.reader
+--- @param nbyte integer
+--- @param sec? number
+--- @return testcase.process
+local function spawn_pipe_drain(pr, nbyte, sec)
+    local p = assert(fork())
+    if p:is_child() then
+        local ok, err = pcall(function()
+            sleep(sec or DRAIN_DELAY)
+            drain_pipe(pr, nbyte)
+            assert(pr:close())
+        end)
+        if not ok then
+            io.stderr:write(err, '\n')
+            os.exit(1)
         end
+        os.exit(0)
     end
+    return p
+end
 
-    if not ok then
-        error(err, 0)
-    end
+--- Create a writer backed by a full non-blocking pipe.
+--- @param sec? number
+--- @return os.pipe.reader
+--- @return io.writer
+--- @return integer
+local function new_full_pipe_writer(sec)
+    local pr, pw, err = pipe(true)
+    assert(err == nil, err)
+
+    local w = assert(writer.new(pw:fd(), sec))
+    local cap = fill_pipe(pw)
+    assert(pw:close())
+    return pr, w, cap
+end
+
+--- Write after a child process drains the pipe and collect the elapsed time.
+--- @param w io.writer
+--- @param pr os.pipe.reader
+--- @param cap integer
+--- @param ... any
+--- @return integer? n
+--- @return any err
+--- @return boolean? again
+--- @return any remain
+--- @return number elapsed
+local function write_after_drain(w, pr, cap, ...)
+    local p = spawn_pipe_drain(pr, cap)
+    local t = gettime()
+    local n, err, again, remain = w:write(...)
+    t = gettime() - t
+
+    local res = assert(p:wait())
+    assert.equal(res.exit, 0)
+    return n, err, again, remain, t
 end
 
 function testcase.before_all()
@@ -86,9 +152,27 @@ function testcase.new()
     assert.is_nil(w)
     assert.match(err, 'FILE*, pathname or file descriptor expected, got boolean')
 
-    -- test that throws an error if sec is invalid
-    err = assert.throws(writer.new, f, true)
-    assert.match(err, 'sec must be number or nil')
+    -- Stop GC so the check observes whether writer.new validates sec before
+    -- duplicating the file handle.
+    local base = assert(writer.new(f))
+    local basefd = base:getfd()
+    assert(base:close())
+
+    collectgarbage('stop')
+    local ok, testerr = pcall(function()
+        -- test that throws an error if sec is invalid
+        err = assert.throws(writer.new, f, true)
+        assert.match(err, 'sec must be number or nil')
+
+        w = assert(writer.new(f))
+        assert.equal(w:getfd(), basefd)
+        assert(w:close())
+    end)
+    collectgarbage('restart')
+    collectgarbage('collect')
+    if not ok then
+        error(testerr, 0)
+    end
 end
 
 function testcase.getfd()
@@ -141,50 +225,58 @@ function testcase.write()
     assert.match(err, 'data argument is required')
 end
 
-function testcase.write_uses_io_write_table()
-    local calls = {}
-    local wait_count = 0
+function testcase.write_uses_current_offset()
     local f = assert(io.tmpfile())
     local w = assert(writer.new(f))
+    local n, err, again, remain
 
-    with_swapped_upvalues(w.write, {
-        write = function(_, data)
-            calls[#calls + 1] = data
-            if #calls == 1 then
-                return 5, nil, true, {
-                    'l',
-                    'true',
-                    'bar',
-                }
-            end
-            return 8
-        end,
-        wait_writable = function(fd)
-            wait_count = wait_count + 1
-            return fd
-        end,
-    }, function()
-        local n, err, again, remain = w:write('foo', nil, true, 'bar')
+    -- writer.new(file) should continue from the file handle's current offset.
+    assert(f:write('0123456789'))
+    assert(f:flush())
+    assert(f:seek('set', 5))
+    n, err, again, remain = w:write('XYZ')
+    assert.equal(n, 3)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
 
-        assert.equal(n, 13)
-        assert.is_nil(err)
-        assert.is_nil(again)
-        assert.is_nil(remain)
-    end)
-
+    -- Verify the effective write position from the persisted file contents
+    -- instead of f:seek(), whose view can be affected by stdio buffering.
+    assert(f:seek('set', 0))
+    assert.equal(f:read('*a'), '01234XYZ89')
     assert(w:close())
     f:close()
-    assert.equal(wait_count, 1)
-    assert.is_table(calls[1])
-    assert.equal(calls[1][1], 'foo')
-    assert.equal(calls[1][2], 'nil')
-    assert.equal(calls[1][3], 'true')
-    assert.equal(calls[1][4], 'bar')
-    assert.is_table(calls[2])
-    assert.equal(calls[2][1], 'l')
-    assert.equal(calls[2][2], 'true')
-    assert.equal(calls[2][3], 'bar')
-    assert.is_nil(calls[2][4])
+
+    f = assert(io.tmpfile())
+    assert(f:write('0123456789'))
+    assert(f:flush())
+    assert(f:seek('set', 5))
+    w = assert(writer.new(fileno(f)))
+
+    -- writer.new(fd) should continue from the same open file description offset.
+    n, err, again, remain = w:write('XYZ')
+    assert.equal(n, 3)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
+    assert(f:seek('set', 0))
+    assert.equal(f:read('*a'), '01234XYZ89')
+    assert(w:close())
+    f:close()
+end
+
+function testcase.write_retries_after_wait()
+    local pr, w, cap = new_full_pipe_writer()
+    local n, err, again, remain = write_after_drain(w, pr, cap, 'foo', nil,
+                                                    true, 'bar')
+
+    assert(w:close())
+    assert.equal(n, 13)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
+    assert.equal(pr:read(n), 'fooniltruebar')
+    assert(pr:close())
 end
 
 function testcase.write_timeout()
@@ -192,11 +284,7 @@ function testcase.write_timeout()
     assert(perr == nil, perr)
     local w = assert(writer.new(pw:fd(), 0.3))
     -- calculate the capacity of pipe
-    local cap = 0
-    repeat
-        local n, _, again = assert(pw:write(string.rep('x', 1024)))
-        cap = cap + n
-    until again == true
+    local cap = fill_pipe(pw)
     pr:read(cap)
     assert(pw:write(string.rep('x', cap - 4)))
 
@@ -224,6 +312,34 @@ function testcase.write_timeout()
     -- test that throws an error if sec is invalid
     err = assert.throws(w.set_timeout, w, true)
     assert.match(err, 'sec must be number or nil')
+end
+
+function testcase.write_negative_timeout()
+    --- Assert that a negative timeout keeps waiting until the pipe becomes
+    --- writable again.
+    --- @param w io.writer
+    --- @param pr os.pipe.reader
+    --- @param cap integer
+    local assert_waits_forever = function(w, pr, cap)
+        local n, err, again, remain, t = write_after_drain(w, pr, cap, 'hello')
+
+        assert.equal(n, 5)
+        assert.is_nil(err)
+        assert.is_nil(again)
+        assert.is_nil(remain)
+        assert.greater(t, DRAIN_DELAY - 0.01)
+        assert.equal(pr:read(n), 'hello')
+        assert(pr:close())
+    end
+
+    local pr, w, cap = new_full_pipe_writer(-1)
+    assert_waits_forever(w, pr, cap)
+    assert(w:close())
+
+    pr, w, cap = new_full_pipe_writer()
+    w:set_timeout(-1)
+    assert_waits_forever(w, pr, cap)
+    assert(w:close())
 end
 
 function testcase.close()

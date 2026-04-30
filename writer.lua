@@ -32,6 +32,22 @@ local new_deadline = require('time.clock.deadline').new
 local EINVAL = require('errno').EINVAL
 local EBADF = require('errno').EBADF
 
+--- normalize timeout value
+--- @param sec number?
+--- @return number?
+local function normalize_timeout(sec)
+    if sec ~= nil and sec < 0 then
+        return nil
+    end
+    return sec
+end
+
+--- validate timeout argument
+--- @param sec number?
+local function assert_timeout(sec)
+    assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
+end
+
 --- @class io.writer
 --- @field private fd integer
 --- @field private file? file*
@@ -45,7 +61,7 @@ local Writer = {}
 function Writer:init(fd, f, sec)
     self.fd = fd
     self.file = f
-    self.waitsec = sec
+    self.waitsec = normalize_timeout(sec)
     return self
 end
 
@@ -58,8 +74,8 @@ end
 --- set_timeout
 --- @param sec? number
 function Writer:set_timeout(sec)
-    assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
-    self.waitsec = sec
+    assert_timeout(sec)
+    self.waitsec = normalize_timeout(sec)
 end
 
 --- close
@@ -138,6 +154,8 @@ Writer = require('metamodule').new(Writer)
 --- @return io.writer? rdr
 --- @return any err
 local function new(file, sec)
+    assert_timeout(sec)
+
     local t = type(file)
     local f, err
     if isfile(file) then
@@ -158,7 +176,6 @@ local function new(file, sec)
         return nil, err
     end
 
-    assert(sec == nil or type(sec) == 'number', 'sec must be number or nil')
     return Writer(fileno(f), f, sec)
 end
 
