@@ -12,6 +12,8 @@ local TEST_TXT = 'test.txt'
 local DRAIN_DELAY = 0.05
 
 -- Fill the non-blocking pipe until the next write has to retry.
+--- @param pw os.pipe.writer
+--- @return integer
 local function fill_pipe(pw)
     local cap = 0
 
@@ -23,6 +25,9 @@ local function fill_pipe(pw)
     return cap
 end
 
+--- Drain bytes from the reader side until the requested size is consumed.
+--- @param pr os.pipe.reader
+--- @param nbyte integer
 local function drain_pipe(pr, nbyte)
     local total = 0
 
@@ -41,6 +46,10 @@ local function drain_pipe(pr, nbyte)
 end
 
 -- Drain bytes from the reader side in a child process after the writer blocks.
+--- @param pr os.pipe.reader
+--- @param nbyte integer
+--- @param sec? number
+--- @return testcase.process
 local function spawn_pipe_drain(pr, nbyte, sec)
     local p = assert(fork())
     if p:is_child() then
@@ -58,6 +67,11 @@ local function spawn_pipe_drain(pr, nbyte, sec)
     return p
 end
 
+--- Create a writer backed by a full non-blocking pipe.
+--- @param sec? number
+--- @return os.pipe.reader
+--- @return io.writer
+--- @return integer
 local function new_full_pipe_writer(sec)
     local pr, pw, err = pipe(true)
     assert(err == nil, err)
@@ -68,6 +82,16 @@ local function new_full_pipe_writer(sec)
     return pr, w, cap
 end
 
+--- Write after a child process drains the pipe and collect the elapsed time.
+--- @param w io.writer
+--- @param pr os.pipe.reader
+--- @param cap integer
+--- @param ... any
+--- @return integer? n
+--- @return any err
+--- @return boolean? again
+--- @return any remain
+--- @return number elapsed
 local function write_after_drain(w, pr, cap, ...)
     local p = spawn_pipe_drain(pr, cap)
     local t = gettime()
@@ -128,9 +152,27 @@ function testcase.new()
     assert.is_nil(w)
     assert.match(err, 'FILE*, pathname or file descriptor expected, got boolean')
 
-    -- test that throws an error if sec is invalid
-    err = assert.throws(writer.new, f, true)
-    assert.match(err, 'sec must be number or nil')
+    -- Stop GC so the check observes whether writer.new validates sec before
+    -- duplicating the file handle.
+    local base = assert(writer.new(f))
+    local basefd = base:getfd()
+    assert(base:close())
+
+    collectgarbage('stop')
+    local ok, testerr = pcall(function()
+        -- test that throws an error if sec is invalid
+        err = assert.throws(writer.new, f, true)
+        assert.match(err, 'sec must be number or nil')
+
+        w = assert(writer.new(f))
+        assert.equal(w:getfd(), basefd)
+        assert(w:close())
+    end)
+    collectgarbage('restart')
+    collectgarbage('collect')
+    if not ok then
+        error(testerr, 0)
+    end
 end
 
 function testcase.getfd()
@@ -233,6 +275,11 @@ function testcase.write_timeout()
 end
 
 function testcase.write_negative_timeout()
+    --- Assert that a negative timeout keeps waiting until the pipe becomes
+    --- writable again.
+    --- @param w io.writer
+    --- @param pr os.pipe.reader
+    --- @param cap integer
     local assert_waits_forever = function(w, pr, cap)
         local n, err, again, remain, t = write_after_drain(w, pr, cap, 'hello')
 
