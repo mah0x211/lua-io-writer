@@ -225,6 +225,46 @@ function testcase.write()
     assert.match(err, 'data argument is required')
 end
 
+function testcase.write_uses_current_offset()
+    local f = assert(io.tmpfile())
+    local w = assert(writer.new(f))
+    local n, err, again, remain
+
+    -- writer.new(file) should continue from the file handle's current offset.
+    assert(f:write('0123456789'))
+    assert(f:flush())
+    assert(f:seek('set', 5))
+    n, err, again, remain = w:write('XYZ')
+    assert.equal(n, 3)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
+
+    -- Verify the effective write position from the persisted file contents
+    -- instead of f:seek(), whose view can be affected by stdio buffering.
+    assert(f:seek('set', 0))
+    assert.equal(f:read('*a'), '01234XYZ89')
+    assert(w:close())
+    f:close()
+
+    f = assert(io.tmpfile())
+    assert(f:write('0123456789'))
+    assert(f:flush())
+    assert(f:seek('set', 5))
+    w = assert(writer.new(fileno(f)))
+
+    -- writer.new(fd) should continue from the same open file description offset.
+    n, err, again, remain = w:write('XYZ')
+    assert.equal(n, 3)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    assert.is_nil(remain)
+    assert(f:seek('set', 0))
+    assert.equal(f:read('*a'), '01234XYZ89')
+    assert(w:close())
+    f:close()
+end
+
 function testcase.write_retries_after_wait()
     local pr, w, cap = new_full_pipe_writer()
     local n, err, again, remain = write_after_drain(w, pr, cap, 'foo', nil,
