@@ -8,6 +8,35 @@ local gettime = require('time.clock').gettime
 
 local TEST_TXT = 'test.txt'
 
+local function with_swapped_upvalues(fn, replacements, cb)
+    local originals = {}
+
+    for i = 1, math.huge do
+        local name, value = debug.getupvalue(fn, i)
+        if not name then
+            break
+        elseif replacements[name] ~= nil then
+            originals[name] = value
+            debug.setupvalue(fn, i, replacements[name])
+        end
+    end
+
+    local ok, err = pcall(cb)
+
+    for i = 1, math.huge do
+        local name = debug.getupvalue(fn, i)
+        if not name then
+            break
+        elseif originals[name] ~= nil then
+            debug.setupvalue(fn, i, originals[name])
+        end
+    end
+
+    if not ok then
+        error(err, 0)
+    end
+end
+
 function testcase.before_all()
     local f = assert(io.open(TEST_TXT, 'w'))
     f:write('hello world')
@@ -110,6 +139,52 @@ function testcase.write()
     -- test that throws an error if no data arguments are specified
     err = assert.throws(w.write, w)
     assert.match(err, 'data argument is required')
+end
+
+function testcase.write_uses_io_write_table()
+    local calls = {}
+    local wait_count = 0
+    local f = assert(io.tmpfile())
+    local w = assert(writer.new(f))
+
+    with_swapped_upvalues(w.write, {
+        write = function(_, data)
+            calls[#calls + 1] = data
+            if #calls == 1 then
+                return 5, nil, true, {
+                    'l',
+                    'true',
+                    'bar',
+                }
+            end
+            return 8
+        end,
+        wait_writable = function(fd)
+            wait_count = wait_count + 1
+            return fd
+        end,
+    }, function()
+        local n, err, again, remain = w:write('foo', nil, true, 'bar')
+
+        assert.equal(n, 13)
+        assert.is_nil(err)
+        assert.is_nil(again)
+        assert.is_nil(remain)
+    end)
+
+    assert(w:close())
+    f:close()
+    assert.equal(wait_count, 1)
+    assert.is_table(calls[1])
+    assert.equal(calls[1][1], 'foo')
+    assert.equal(calls[1][2], 'nil')
+    assert.equal(calls[1][3], 'true')
+    assert.equal(calls[1][4], 'bar')
+    assert.is_table(calls[2])
+    assert.equal(calls[2][1], 'l')
+    assert.equal(calls[2][2], 'true')
+    assert.equal(calls[2][3], 'bar')
+    assert.is_nil(calls[2][4])
 end
 
 function testcase.write_timeout()

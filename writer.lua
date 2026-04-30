@@ -19,14 +19,13 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 -- THE SOFTWARE.
 --
-local concat = table.concat
 local select = select
 local type = type
 local tostring = tostring
 local isfile = require('io.isfile')
 local fopen = require('io.fopen')
 local fileno = require('io.fileno')
-local writev = require('io.writev')
+local write = require('io.write')
 local wait_writable = require('gpoll').wait_writable
 local new_deadline = require('time.clock.deadline').new
 -- constants
@@ -100,10 +99,9 @@ function Writer:write(...)
         return nil, EBADF:new('writer is closed')
     end
 
-    local str = concat(args)
     local sec = self.waitsec
     local deadline = sec and new_deadline(sec)
-    local n, err, again, remain = writev(fd, str)
+    local n, err, again, remain = write(fd, args)
     local total = 0
     while again do
         total = total + n
@@ -121,7 +119,7 @@ function Writer:write(...)
             return total, err, again
         end
         -- write remaining data
-        n, err, again, remain = writev(fd, remain)
+        n, err, again, remain = write(fd, remain)
     end
 
     if n then
