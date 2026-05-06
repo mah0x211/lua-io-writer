@@ -117,7 +117,7 @@ function Writer:write(...)
 
     local sec = self.waitsec
     local deadline = sec and new_deadline(sec)
-    local n, err, again, remain = write(fd, args)
+    local n, err, again = write(fd, args)
     local total = 0
     while again do
         total = total + n
@@ -134,8 +134,8 @@ function Writer:write(...)
         if not fd then
             return total, err, again
         end
-        -- write remaining data
-        n, err, again, remain = write(fd, remain)
+        -- write remaining data (total = bytes already written = start pos)
+        n, err, again = write(fd, args, nil, total)
     end
 
     if n then
