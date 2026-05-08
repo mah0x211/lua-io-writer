@@ -135,7 +135,7 @@ function Writer:write(...)
             return total, err, again
         end
         -- write remaining data (total = bytes already written = start pos)
-        n, err, again = write(fd, args, nil, total)
+        n, err, again = write(fd, args, total)
     end
 
     if n then
