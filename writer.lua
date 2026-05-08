@@ -31,6 +31,8 @@ local new_deadline = require('time.clock.deadline').new
 -- constants
 local EINVAL = require('errno').EINVAL
 local EBADF = require('errno').EBADF
+-- default timeout value 60 minutes
+local DEFAULT_TIMEOUT = 60 * 60
 
 --- normalize timeout value
 --- @param sec number?
@@ -115,18 +117,16 @@ function Writer:write(...)
         return nil, EBADF:new('writer is closed')
     end
 
-    local sec = self.waitsec
-    local deadline = sec and new_deadline(sec)
+    local deadline = new_deadline(self.waitsec or DEFAULT_TIMEOUT)
     local n, err, again = write(fd, args)
     local total = 0
     while again do
         total = total + n
-        if deadline then
-            -- check deadline
-            sec = deadline:remain()
-            if sec <= 0 then
-                return total, nil, true
-            end
+
+        -- check deadline
+        local done, sec = deadline:is_done()
+        if done then
+            return total, nil, true
         end
 
         -- wait for writable
@@ -134,15 +134,15 @@ function Writer:write(...)
         if not fd then
             return total, err, again
         end
+
         -- write remaining data (total = bytes already written = start pos)
-        n, err, again = write(fd, args, nil, total)
+        n, err, again = write(fd, args, total)
     end
 
     if n then
         total = total + n
         return total, err
     end
-
     -- closed by peer
 end
 
